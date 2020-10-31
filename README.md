@@ -175,6 +175,7 @@ echo -e "...\na34\n..." | cli /dev/stdin
 
 ## Extras
 
+- Learn from this collection of [examples and tutorials](https://git.sr.ht/~rabbits/orca-examples).
 - Discuss and get help in the [forum thread](https://llllllll.co/t/orca-live-coding-tool/17689).
 - Support this project through [Patreon](https://patreon.com/100).
 - See the [License](LICENSE.md) (MIT) file for license rights and limitations.

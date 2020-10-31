@@ -220,7 +220,7 @@ BEGIN_OPERATOR(movement)
     return;
   }
   Glyph *restrict g_at_dest = gbuffer + (Usz)y0 * width + (Usz)x0;
-  if (*g_at_dest == '.') {
+  if (*g_at_dest == '.' || *g_at_dest == '*') {
     *g_at_dest = This_oper_char;
     gbuffer[y * width + x] = '.';
     mbuffer[(Usz)y0 * width + (Usz)x0] |= Mark_flag_sleep;
