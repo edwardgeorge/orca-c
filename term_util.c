@@ -59,27 +59,27 @@ struct Qform {
   int id;
 };
 
-void qmenu_free(Qmenu *qm);
-void qform_free(Qform *qf);
+static void qmenu_free(Qmenu *qm);
+static void qform_free(Qform *qf);
 ORCA_NOINLINE static void qmenu_reprint(Qmenu *qm);
 
 Qnav_stack qnav_stack;
 
-void qnav_init() { qnav_stack = (Qnav_stack){.blocks = {0}}; }
+void qnav_init() { qnav_stack = (Qnav_stack){0}; }
 void qnav_deinit() {
-  while (qnav_stack.count != 0)
+  while (qnav_stack.top)
     qnav_stack_pop();
 }
 static ORCA_NOINLINE void qnav_stack_push(Qblock *qb, int height, int width) {
 #ifndef NDEBUG
-  for (Usz i = 0; i < qnav_stack.count; ++i) {
-    assert(qnav_stack.blocks[i] != qb);
+  for (Qblock *i = qnav_stack.top; i; i = i->down) {
+    assert(i != qb);
   }
 #endif
   int top = 0, left = 0;
   int total_h = height + 2, total_w = width + 2;
-  if (qnav_stack.count > 0) {
-    WINDOW *w = qnav_stack.blocks[qnav_stack.count - 1]->outer_window;
+  if (qnav_stack.top) {
+    WINDOW *w = qnav_stack.top->outer_window;
     int prev_y, prev_x, prev_h, prev_w;
     getbegyx(w, prev_y, prev_x);
     getmaxyx(w, prev_h, prev_w);
@@ -106,9 +106,12 @@ static ORCA_NOINLINE void qnav_stack_push(Qblock *qb, int height, int width) {
         left = 0;
       }
     }
+    qnav_stack.top->up = qb;
+  } else {
+    qnav_stack.bottom = qb;
   }
-  qnav_stack.blocks[qnav_stack.count] = qb;
-  ++qnav_stack.count;
+  qb->down = qnav_stack.top;
+  qnav_stack.top = qb;
   qb->outer_window = newpad(total_h, total_w);
   // This used to be derwin when when used newwin instead of newpad -- not sure
   // if we should use derwin or subpad now. subpad is probably more compatible.
@@ -119,11 +122,7 @@ static ORCA_NOINLINE void qnav_stack_push(Qblock *qb, int height, int width) {
   qnav_stack.occlusion_dirty = true;
 }
 
-Qblock *qnav_top_block() {
-  if (qnav_stack.count == 0)
-    return NULL;
-  return qnav_stack.blocks[qnav_stack.count - 1];
-}
+Qblock *qnav_top_block() { return qnav_stack.top; }
 
 void qblock_init(Qblock *qb, Qblock_type_tag tag) {
   *qb = (Qblock){0};
@@ -147,10 +146,16 @@ void qnav_free_block(Qblock *qb) {
 }
 
 void qnav_stack_pop(void) {
-  assert(qnav_stack.count > 0);
-  if (qnav_stack.count == 0)
+  assert(qnav_stack.top);
+  if (!qnav_stack.top)
     return;
-  Qblock *qb = qnav_stack.blocks[qnav_stack.count - 1];
+  Qblock *qb = qnav_stack.top;
+  qnav_stack.top = qb->down;
+  if (qnav_stack.top)
+    qnav_stack.top->up = NULL;
+  else
+    qnav_stack.bottom = NULL;
+  qnav_stack.occlusion_dirty = true;
   WINDOW *content_window = qb->content_window;
   WINDOW *outer_window = qb->outer_window;
   // erase any stuff underneath where this window is, in case it's outside of
@@ -160,20 +165,16 @@ void qnav_stack_pop(void) {
   qnav_free_block(qb);
   delwin(content_window);
   delwin(outer_window);
-  --qnav_stack.count;
-  qnav_stack.blocks[qnav_stack.count] = NULL;
-  qnav_stack.occlusion_dirty = true;
 }
 
 bool qnav_draw(void) {
   bool drew_any = false;
-  if (qnav_stack.count < 1)
+  if (!qnav_stack.bottom)
     goto done;
   int term_h, term_w;
   getmaxyx(stdscr, term_h, term_w);
-  for (Usz i = 0; i < qnav_stack.count; ++i) {
-    Qblock *qb = qnav_stack.blocks[i];
-    bool is_frontmost = i == qnav_stack.count - 1;
+  for (Qblock *qb = qnav_stack.bottom; qb; qb = qb->up) {
+    bool is_frontmost = qb == qnav_stack.top;
     if (qnav_stack.occlusion_dirty)
       qblock_print_frame(qb, is_frontmost);
     switch (qb->tag) {
@@ -469,7 +470,7 @@ void qmenu_push_to_nav(Qmenu *qm) {
   qnav_stack_push(&qm->qblock, menu_min_h, menu_min_w);
 }
 
-void qmenu_free(Qmenu *qm) {
+static void qmenu_free(Qmenu *qm) {
   Qmenu_item *items = qm->items;
   for (Usz i = 0, n = qm->items_count; i < n; ++i) {
     if (items[i].owns_string)
@@ -552,12 +553,21 @@ Qform *qform_create(int id) {
   qf->id = id;
   return qf;
 }
-
-Qform *qform_of(Qblock *qb) { return ORCA_CONTAINER_OF(qb, Qform, qblock); }
-
+static void qform_free(Qform *qf) {
+  curs_set(0);
+  unpost_form(qf->ncurses_form);
+  free_form(qf->ncurses_form);
+  for (Usz i = 0; i < qf->fields_count; ++i) {
+    free_field(qf->ncurses_fields[i]);
+  }
+  free(qf);
+}
 int qform_id(Qform const *qf) { return qf->id; }
-
-void qform_add_text_line(Qform *qf, int id, char const *initial) {
+Qform *qform_of(Qblock *qb) { return ORCA_CONTAINER_OF(qb, Qform, qblock); }
+void qform_set_title(Qform *qf, char const *title) {
+  qblock_set_title(&qf->qblock, title);
+}
+void qform_add_line_input(Qform *qf, int id, char const *initial) {
   FIELD *f = new_field(1, 30, 0, 0, 0, 0);
   if (initial)
     set_field_buffer(f, 0, initial);
@@ -567,7 +577,6 @@ void qform_add_text_line(Qform *qf, int id, char const *initial) {
   ++qf->fields_count;
   qf->ncurses_fields[qf->fields_count] = NULL;
 }
-
 void qform_push_to_nav(Qform *qf) {
   qf->ncurses_form = new_form(qf->ncurses_fields);
   int form_min_h, form_min_w;
@@ -580,21 +589,12 @@ void qform_push_to_nav(Qform *qf) {
   curs_set(1);
   form_driver(qf->ncurses_form, REQ_END_LINE);
 }
-
-void qform_set_title(Qform *qf, char const *title) {
-  qblock_set_title(&qf->qblock, title);
+void qform_single_line_input(int id, char const *title, char const *initial) {
+  Qform *qf = qform_create(id);
+  qform_set_title(qf, title);
+  qform_add_line_input(qf, 1, initial);
+  qform_push_to_nav(qf);
 }
-
-void qform_free(Qform *qf) {
-  curs_set(0);
-  unpost_form(qf->ncurses_form);
-  free_form(qf->ncurses_form);
-  for (Usz i = 0; i < qf->fields_count; ++i) {
-    free_field(qf->ncurses_fields[i]);
-  }
-  free(qf);
-}
-
 bool qform_drive(Qform *qf, int key, Qform_action *out_action) {
   switch (key) {
   case 27:
@@ -634,7 +634,6 @@ bool qform_drive(Qform *qf, int key, Qform_action *out_action) {
   form_driver(qf->ncurses_form, key);
   return false;
 }
-
 static Usz size_without_trailing_spaces(char const *str) {
   Usz size = strlen(str);
   for (;;) {
@@ -646,8 +645,7 @@ static Usz size_without_trailing_spaces(char const *str) {
   }
   return size;
 }
-
-FIELD *qform_find_field(Qform const *qf, int id) {
+static FIELD *qform_find_field(Qform const *qf, int id) {
   Usz count = qf->fields_count;
   for (Usz i = 0; i < count; ++i) {
     FIELD *f = qf->ncurses_fields[i];
@@ -656,7 +654,6 @@ FIELD *qform_find_field(Qform const *qf, int id) {
   }
   return NULL;
 }
-
 bool qform_get_text_line(Qform const *qf, int id, oso **out) {
   FIELD *f = qform_find_field(qf, id);
   if (!f)
@@ -668,4 +665,14 @@ bool qform_get_text_line(Qform const *qf, int id, oso **out) {
   Usz trimmed = size_without_trailing_spaces(buf);
   osoputlen(out, buf, trimmed);
   return true;
+}
+bool qform_get_single_text_line(Qform const *qf, struct oso **out) {
+  return qform_get_text_line(qf, 1, out);
+}
+oso *qform_get_nonempty_single_line_input(Qform *qf) {
+  oso *s = NULL;
+  if (qform_get_text_line(qf, 1, &s) && osolen(s) > 0)
+    return s;
+  osofree(s);
+  return NULL;
 }
