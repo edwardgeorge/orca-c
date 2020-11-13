@@ -409,7 +409,25 @@ build_target() {
           add cc_flags -D_POSIX_C_SOURCE=200809L
         ;;
       esac
-      add libraries -lformw -lncursesw
+      # Depending on the Linux distro, ncurses might have been built with tinfo
+      # as a separate library that explicitly needs to be linked, or it might
+      # not. And if it does, it might need to be either -ltinfo or -ltinfow.
+      # Yikes. If this is Linux, let's try asking pkg-config what it thinks.
+      local curses_flags=0
+      if [[ $os == linux ]]; then
+        if curses_flags=$(pkg-config --libs ncursesw formw 2>/dev/null); then
+          # split by spaces into separate args, then append to array
+          IFS=" " read -r -a libraries <<< "$curses_flags"
+          curses_flags=1
+        else
+          curses_flags=0
+        fi
+      fi
+      # If we didn't get the flags by pkg-config, just guess. (This will work
+      # most of the time, including on Mac with Homebrew, and cygwin.)
+      if [[ $curses_flags = 0 ]]; then
+        add libraries -lncursesw -lformw
+      fi
       if [[ $portmidi_enabled = 1 ]]; then
         add libraries -lportmidi
         add cc_flags -DFEAT_PORTMIDI
