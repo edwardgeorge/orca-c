@@ -242,6 +242,7 @@ BEGIN_OPERATOR(midicc)
   Usz channel = index_of(channel_g);
   if (channel > 15)
     return;
+  PORT(0, 0, OUT);
   Oevent_midi_cc *oe =
       (Oevent_midi_cc *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = Oevent_type_midi_cc;
@@ -305,6 +306,7 @@ BEGIN_OPERATOR(midi)
     if (vel_num > 127)
       vel_num = 127;
   }
+  PORT(0, 0, OUT);
   Oevent_midi_note *oe =
       (Oevent_midi_note *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = (U8)Oevent_type_midi_note;
@@ -335,6 +337,7 @@ BEGIN_OPERATOR(udp)
   }
   n = i;
   STOP_IF_NOT_BANGED;
+  PORT(0, 0, OUT);
   Oevent_udp_string *oe =
       (Oevent_udp_string *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = (U8)Oevent_type_udp_string;
@@ -356,6 +359,7 @@ BEGIN_OPERATOR(osc)
   STOP_IF_NOT_BANGED;
   Glyph g = PEEK(0, 1);
   if (g != '.') {
+    PORT(0, 0, OUT);
     U8 buff[Oevent_osc_int_count];
     for (Usz i = 0; i < len; ++i) {
       buff[i] = (U8)index_of(PEEK(0, (Isz)i + 3));
@@ -384,6 +388,7 @@ BEGIN_OPERATOR(midipb)
   Usz channel = index_of(channel_g);
   if (channel > 15)
     return;
+  PORT(0, 0, OUT);
   Oevent_midi_pb *oe =
       (Oevent_midi_pb *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = Oevent_type_midi_pb;
@@ -421,14 +426,15 @@ BEGIN_OPERATOR(clock)
   PORT(0, -1, IN | PARAM);
   PORT(0, 1, IN);
   PORT(1, 0, OUT);
+  Glyph b = PEEK(0, 1);
   Usz rate = index_of(PEEK(0, -1));
-  Usz mod_num = index_of(PEEK(0, 1));
+  Usz mod_num = index_of(b);
   if (rate == 0)
     rate = 1;
   if (mod_num == 0)
     mod_num = 8;
   Glyph g = glyph_of(Tick_number / rate % mod_num);
-  POKE(1, 0, g);
+  POKE(1, 0, glyph_with_case(g, b));
 END_OPERATOR
 
 BEGIN_OPERATOR(delay)
@@ -474,7 +480,7 @@ END_OPERATOR
 
 BEGIN_OPERATOR(halt)
   LOWERCASE_REQUIRES_BANG;
-  PORT(1, 0, OUT);
+  PORT(1, 0, IN | PARAM);
 END_OPERATOR
 
 BEGIN_OPERATOR(increment)
@@ -611,8 +617,9 @@ BEGIN_OPERATOR(random)
   PORT(0, -1, IN | PARAM);
   PORT(0, 1, IN);
   PORT(1, 0, OUT);
+  Glyph gb = PEEK(0, 1);
   Usz a = index_of(PEEK(0, -1));
-  Usz b = index_of(PEEK(0, 1));
+  Usz b = index_of(gb);
   if (b == 0)
     b = 36;
   Usz min, max;
@@ -637,7 +644,7 @@ BEGIN_OPERATOR(random)
   key = key ^ (key >> UINT32_C(15));
   // Hash finished. Restrict to desired range of numbers.
   Usz val = key % (max - min) + min;
-  POKE(1, 0, glyph_of(val));
+  POKE(1, 0, glyph_with_case(glyph_of(val), gb));
 END_OPERATOR
 
 BEGIN_OPERATOR(track)
@@ -728,11 +735,12 @@ BEGIN_OPERATOR(lerp)
   PORT(0, 1, IN);
   PORT(1, 0, IN | OUT);
   Glyph g = PEEK(0, -1);
+  Glyph b = PEEK(0, 1);
   Isz rate = g == '.' || g == '*' ? 1 : (Isz)index_of(g);
-  Isz goal = (Isz)index_of(PEEK(0, 1));
+  Isz goal = (Isz)index_of(b);
   Isz val = (Isz)index_of(PEEK(1, 0));
   Isz mod = val <= goal - rate ? rate : val >= goal + rate ? -rate : goal - val;
-  POKE(1, 0, glyph_of((Usz)(val + mod)));
+  POKE(1, 0, glyph_with_case(glyph_of((Usz)(val + mod)), b));
 END_OPERATOR
 
 //////// Run simulation

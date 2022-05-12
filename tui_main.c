@@ -82,8 +82,6 @@ static Glyph_class glyph_class_of(Glyph glyph) {
   case 's':
   case 'W':
   case 'w':
-  case 'Z':
-  case 'z':
     return Glyph_class_movement;
   case '!':
   case ':':
@@ -640,7 +638,7 @@ staticni void draw_oevent_list(WINDOW *win, Oevent_list const *oevent_list) {
     }
     case Oevent_type_osc_ints: {
       Oevent_osc_ints const *eo = &ev->osc_ints;
-      wprintw(win, "OSC\t%c\tcount: %d ", eo->glyph, eo->count, eo->count);
+      wprintw(win, "OSC\t%c\tcount: %d ", eo->glyph, eo->count);
       waddch(win, ACS_VLINE);
       for (Usz j = 0; j < eo->count; ++j) {
         wprintw(win, " %d", eo->numbers[j]);
@@ -3857,6 +3855,9 @@ quit:
   qnav_deinit();
   if (cont_window)
     delwin(cont_window);
+#ifndef FEAT_NOMOUSE
+  printf("\033[?1003l\n"); // turn off console mouse events if they were active
+#endif
   printf("\033[?2004h\n"); // Tell terminal to not use bracketed paste
   endwin();
   ged_deinit(&t.ged);
